@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-import inspect
+import pathlib
 from typing import TYPE_CHECKING, Any
 from .proxy import Proxy
 
@@ -34,6 +34,12 @@ def serializeValue(
 
     if isinstance(value, np.ndarray):
         return _serializeArray(value, trace_ir, array_threshold=array_threshold)
+
+    if isinstance(value, pathlib.PurePath):
+        return _serializePath(value)
+
+    if _isHistogramLike(value):
+        return _serializeHistogram(value, trace_ir, array_threshold=array_threshold)
 
     if isinstance(value, tuple):
         inner = ", ".join(
@@ -108,16 +114,44 @@ def _dtypeString(dtype: np.dtype) -> str:
     return f"np.{dtype}"
 
 
-#def _serializeCallable(fn: Any) -> str:
-#    module = getattr(fn, "__module__", None)
-#    qualname = getattr(fn, "__qualname__", None)
-#    if module and qualname and "<lambda>" not in (qualname or ""):
-#        return f"{module}.{qualname}"
-#
-#    try:
-#        source = inspect.getsource(fn).strip()
-#        return source
-#    except (OSError, TypeError):
-#        pass
-#
-#    return f"# <unserializable callable: {fn!r}>"
+def _serializePath(p: pathlib.PurePath) -> str:
+    cls_name = type(p).__name__
+    return f'Path({repr(str(p))})'
+
+
+def _isHistogramLike(value: Any) -> bool:
+    return (
+        hasattr(value, "to_numpy")
+        and hasattr(value, "axes")
+        and hasattr(value, "values")
+        and callable(getattr(value, "to_numpy", None))
+    )
+
+
+def _serializeHistogram(
+    h: Any,
+    trace_ir: TraceIR | None,
+    *,
+    array_threshold: int,
+) -> str:
+    numpy_tuple = h.to_numpy()
+    values = numpy_tuple[0]
+    edges_list = list(numpy_tuple[1:])
+
+    values_str = _serializeArray(values, trace_ir, array_threshold=array_threshold)
+    edges_strs = [
+        _serializeArray(e, trace_ir, array_threshold=array_threshold)
+        for e in edges_list
+    ]
+
+    var_str = "None"
+    if hasattr(h, "variances") and callable(getattr(h, "variances", None)):
+        var_array = h.variances()
+        if var_array is not None:
+            var_str = _serializeArray(var_array, trace_ir, array_threshold=array_threshold)
+
+    if var_str != "None":
+        return f"uhi.numpy_plottable.NumPyPlottableHistogram({values_str}, {', '.join(edges_strs)}, variances={var_str})"
+
+    all_parts = [values_str] + edges_strs
+    return f"({', '.join(all_parts)})"

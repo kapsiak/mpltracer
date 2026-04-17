@@ -22,7 +22,6 @@ def generateScript(
     trace: TraceIR | "Trace",
     path: str | Path | None = None,
     *,
-    include_show: bool = True,
     array_threshold: int = DEFAULT_ARRAY_INLINE_THRESHOLD,
 ) -> str:
     if isinstance(trace, Trace):
@@ -33,7 +32,6 @@ def generateScript(
     return _generateScript(
         trace_ir,
         path=path,
-        include_show=include_show,
         array_threshold=array_threshold,
     )
 

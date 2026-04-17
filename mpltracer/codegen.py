@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import pathlib
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from .ir import CallNode, TraceIR
-from .serialize import serializeValue, DEFAULT_ARRAY_INLINE_THRESHOLD
+from .serialize import serializeValue, DEFAULT_ARRAY_INLINE_THRESHOLD, _isHistogramLike
 
 
 def generateScript(
@@ -28,6 +29,12 @@ def generateScript(
     if has_numpy:
         lines.append("import numpy as np")
         emitted_imports.add("numpy")
+
+    if _irUsesPathlib(trace_ir):
+        lines.append("from pathlib import Path")
+
+    if _irUsesWeightedHistogram(trace_ir):
+        lines.append("import uhi.numpy_plottable")
 
     for imp in trace_ir.imports:
         code = imp.toCode()
@@ -75,13 +82,35 @@ def generateScript(
 def _irUsesNumpy(trace_ir: TraceIR) -> bool:
     for call in trace_ir.calls:
         for arg in call.args:
-            if isinstance(arg, np.ndarray):
+            if isinstance(arg, np.ndarray) or _isHistogramLike(arg):
                 return True
         for val in call.kwargs.values():
-            if isinstance(val, np.ndarray):
+            if isinstance(val, np.ndarray) or _isHistogramLike(val):
                 return True
     if trace_ir.data_arrays:
         return True
+    return False
+
+
+def _irUsesPathlib(trace_ir: TraceIR) -> bool:
+    for call in trace_ir.calls:
+        for arg in call.args:
+            if isinstance(arg, pathlib.PurePath):
+                return True
+        for val in call.kwargs.values():
+            if isinstance(val, pathlib.PurePath):
+                return True
+    return False
+
+
+def _irUsesWeightedHistogram(trace_ir: TraceIR) -> bool:
+    for call in trace_ir.calls:
+        for arg in call.args:
+            if getattr(arg, "variances", None) is not None and getattr(arg, "variances")() is not None:
+                return True
+        for val in call.kwargs.values():
+            if getattr(val, "variances", None) is not None and getattr(val, "variances")() is not None:
+                return True
     return False
 
 
